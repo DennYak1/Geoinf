@@ -1,0 +1,250 @@
+import datetime
+from math import pi, sin, cos, acos, asin
+from pyorbital.orbital import Orbital
+import matplotlib.pyplot as plt
+
+month_list = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+Re = 6378
+
+# Координаты Лабораторного корпуса
+LATITUDE = 55.93013
+LONGITUDE = 37.51832
+h = 0.198
+
+# Прибавление 1 секунды
+def plus_minute(T):
+      if T[5] != 59:
+        T[5] += 1
+      else:
+          T[5] = 0
+          if T[4] != 59:
+              T[4] += 1
+          else:
+              T[4] = 0
+              if T[3] != 23:
+                  T[3] += 1
+              else:
+                  T[3] = 0
+                  if T[2] != month_list[T[1]] - 1:
+                      T[2] += 1
+                  else:
+                      T[2] = 0
+                      if T[1] == 12:
+                          T[1] = 0
+                          T[0] += 1
+
+# Перевод на время по Гринвичу
+def minus_3_hours(T):
+    if T[3] >= 3:
+        T[3] -= 3
+    else:
+        T[3] = 24 + T[3] - 3
+        if T[2] > 1:
+            T[2] -= 1
+        else:
+            if T[1] > 1:
+                T[1] -= 1
+            else:
+                T[0] -= 1
+                T[1] = 12
+            T[2] = month_list[T[1] - 1]
+    return T
+
+# строку превращаем в целочисленные переменные:
+def string_to_list(str):
+    return [int(str[0:4]), int(str[5:7]), int(str[8:10]), int(str[11:13]), int(str[14:16]), int(str[17:19])]
+
+# Список выше изменяем на формат DATETIME
+def to_datetime(list):
+    return datetime.datetime(list[0], list[1], list[2], list[3], list[4], list[5])
+
+# Угл в радианы
+def to_rad(phi):
+    return phi / 180 * pi
+
+# Угл в градусы
+def to_deg(phi):
+    return phi / pi * 180
+
+# На север
+def north(x, y, z):
+    D = -x ** 2 - y ** 2 - z ** 2
+    x_north = 0
+    y_north = 0
+    z_north = -D / z0
+    return x_north, y_north, z_north
+
+# Расстояние до касательной плоскости
+def Po(x0, y0, z0, x, y, z):
+    D = -x0 ** 2 - y0 ** 2 - z0 ** 2
+    dif = (x0 * x + y0 * y + z0 * z + D) / ((x0 ** 2 + y0 ** 2 + z0 ** 2) ** 0.5)
+    return dif
+
+# Проекция точки на касательную плоскость
+def projekt(x0, y0, z0, xc, yc, zc):
+    t = (x0 ** 2 - x0 * xc + y0 ** 2 - y0 * yc + z0 ** 2 - z0 * zc) / (x0 ** 2 + y0 ** 2 + z0 ** 2)
+    xp = xc + t * x0
+    yp = yc + t * y0
+    zp = zc + t * z0
+    return xp, yp, zp
+
+
+# Координаты нашего местоположения: x0, y0, z0 
+lat = to_rad(LATITUDE)
+lon = to_rad(LONGITUDE)
+r0 = Re + h
+x0 = r0 * cos(lat) * cos(lon)
+y0 = r0 * sin(lon) * cos(lat)
+z0 = r0 * sin(lat)
+
+# Координаты вектора направления на север на нашей плоскости - i
+xn, yn, zn = north(x0, y0, z0)
+xi, yi, zi = xn - x0, yn - y0, zn - z0
+Leni = (xi ** 2 + yi ** 2 + zi ** 2) ** 0.5
+
+# Координаты вектора направления на восток на нашей плоскости - j
+xj, yj, zj = yi * z0 - zi * y0, -(xi * z0 - x0 * zi), xi * y0 - yi * x0
+Lenj = (xj ** 2 + yj ** 2 + zj ** 2) ** 0.5
+
+# Время начала и конца прогноза
+print("Enter time start: YYYY MM DD HH mm ss\n(f. e. '2020 10 10 10 10 10' - The 10th of October 2020, 10:10:10 am)")
+T_start = input()
+print("Enter time end:   YYYY MM DD HH mm ss\n(f. e. '2020 11 11 11 11 11' - The 11th of November 2020, 11:11:11 am)")
+T_end = input()
+
+# Пперевод введённых данных в списки
+T_lstart = string_to_list(T_start)
+T_lend = string_to_list(T_end)
+
+# Вывести
+T_out_start = string_to_list(T_start)
+T_out_end = string_to_list(T_end)
+
+# Вывод в формате DATETIME
+T1 = to_datetime(T_lstart)
+T2 = to_datetime(T_lend)
+print("Time start: ", T1)
+print("Time end:   ", T2)
+
+# Изменение времени
+T_lstart = minus_3_hours(T_lstart)
+T_lend = minus_3_hours(T_lend)
+
+# Списки
+Lx = []
+Ly = []
+Lz = []
+elevation = []
+azimut = []
+
+
+orb = Orbital("NOAA 19")
+
+
+# ОСНОВНАЯ ФУНКЦИЯ - НАХОЖДЕНИЕ КООРДИНАТ СПУТНИКА, ЭЛЕВАЦИИ И АЗИМУТА
+def get_prognose(T, time):
+    # ПОЛУЧЕНИЕ ШИРОТЫ, ДОЛГОТЫ И РАССТОЯНИЯ ДО ЗЕМЛИ СПУТНИКА
+    lon, lat, alt = orb.get_lonlatalt(T)
+
+    # ПЕРЕВОД В РАДИАНЫ + ПРИБАВЛЕНИЕ РАДИУСА ЗЕМЛИ
+    lon = to_rad(lon)
+    lat = to_rad(lat)
+    r = alt + Re
+
+    # Нахождение координат спутника
+    x = r * cos(lat) * cos(lon)
+    y = r * sin(lon) * cos(lat)
+    z = r * sin(lat)
+
+    # Запись координат в списки
+    Lx.append(x)
+    Ly.append(y)
+    Lz.append(z)
+
+    # Расстояние до касательной плоскости
+    po = Po(x0, y0, z0, x, y, z)
+
+    # Длина от ЛК до спутника
+    L = ((x - x0) ** 2 + (y - y0) ** 2 + (z - z0) ** 2) ** 0.5
+
+    # Элевация
+    Elevation = asin(po / L)
+    Elevation = to_deg(Elevation)
+
+    # Проекция спутника на касательную плоскость
+    xp, yp, zp = projekt(x0, y0, z0, x, y, z)
+
+    # Переход к вектору проекции
+    xp, yp, zp = xp - x0, yp - y0, zp - z0
+    Lenp = (xp ** 2 + yp ** 2 + zp ** 2) ** 0.5
+
+    # Угол между вектором на север и вектором проекции
+    N = acos((xi * xp + yi * yp + zi * zp) / (Leni * Lenp))
+    N = to_deg(N)
+
+    # Угол между вектором на восток и вектором проекции
+    E = acos((xj * xp + yj * yp + zj * zp) / (Lenj * Lenp))
+    E = to_deg(E)
+
+    # до 360
+    if E > 90:
+        N = -N + 360
+
+    # Азимут
+    Azimut = N
+
+    # Вывод точек на экран
+    if Elevation > 5:
+        print(to_datetime(time), "   Elevation:   ", Elevation, "   Azimut:   ", Azimut)
+
+    # Запись эливации и азимута в списки
+    elevation.append(Elevation)
+    azimut.append(Azimut)
+
+# Цикл выполнения функции
+T_out = T_out_start
+T_work = T_lstart
+while T_work != T_lend:
+    T = to_datetime(T_work)
+    get_prognose(T, T_out)
+    plus_minute(T_work)
+    plus_minute(T_out)
+
+# График движения спутника
+fig = plt.figure()
+ax = fig.add_subplot(111, projection='3d')
+ax.scatter(x0, y0, z0, color='red')
+ax.plot(Lx, Ly, Lz)
+fig.set_size_inches(7, 7)
+plt.show()
+
+# Списки всех прохождений
+elevation_list = []
+azimut_list = []
+
+# Списки 1 прохождения
+single_elevation = []
+single_azimut = []
+
+for i in range(len(elevation)):
+    if elevation[i] > 0:
+        single_elevation.append(elevation[i])
+        single_azimut.append(to_rad(azimut[i]))
+    else:
+        if single_elevation:
+            elevation_list.append(single_elevation)
+            azimut_list.append(single_azimut)
+        single_elevation = []
+        single_azimut = []
+
+# Полярный график
+fig = plt.figure()
+ax = fig.add_subplot(111, projection='polar')
+ax.set_theta_zero_location('N')
+ax.set_theta_direction(-1)
+ax.set_rlim(bottom=90, top=0)
+ax.set_theta_direction(-1)
+for phi, theta in zip(azimut_list, elevation_list):
+    ax.plot(phi, theta)
+fig.set_size_inches(7, 7)
+plt.show()
